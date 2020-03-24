@@ -27,7 +27,7 @@ setup(
     },
     package_data={
         'q2_phylogenomics.tests': ['data/*'],
-        'q2_sample_classifier': ['citations.bib']
+        'q2_phylogenomics': ['citations.bib']
     },
     zip_safe=False,
 )
