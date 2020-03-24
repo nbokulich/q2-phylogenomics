@@ -26,7 +26,8 @@ setup(
         ['q2-phylogenomics=q2_phylogenomics.plugin_setup:plugin']
     },
     package_data={
-        'q2_phylogenomics.tests': ['data/*']
+        'q2_phylogenomics.tests': ['data/*'],
+        'q2_sample_classifier': ['citations.bib']
     },
     zip_safe=False,
 )
