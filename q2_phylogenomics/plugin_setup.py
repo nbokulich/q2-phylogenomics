@@ -6,7 +6,6 @@
 # The full license is in the file LICENSE, distributed with this software.
 # ----------------------------------------------------------------------------
 
-from itertools import permutations, chain
 from qiime2.plugin import (
     Choices,
     Plugin,
@@ -14,6 +13,7 @@ from qiime2.plugin import (
     Range,
     Int,
     Str,
+    List,
 )
 from q2_types.sample_data import SampleData
 from q2_types.per_sample_sequences import (
@@ -39,11 +39,6 @@ plugin = Plugin(
 prinseq_input = {'demultiplexed_sequences': 'The sequences to be trimmed.'}
 prinseq_output = {'trimmed_sequences': 'The resulting trimmed sequences.'}
 
-# valid derep modes include any combination of 1, 2, 3, 4, and 5
-derep_choices = list(chain.from_iterable(
-    [[''.join(i) for i in permutations(list('12345'), int(x))]
-     for x in list('12345')]))
-
 prinseq_parameters = {
     'trim_qual_right': Int % Range(1, None),
     'trim_qual_type': Str % Choices(['min', 'mean', 'max', 'sum']),
@@ -52,7 +47,7 @@ prinseq_parameters = {
     'min_len': Int % Range(1, None),
     'lc_method': Str % Choices(['dust', 'entropy']),
     'lc_threshold': Int % Range(0, 100),
-    'derep': Str % Choices(derep_choices)}
+    'derep': List[Str % Choices(list('12345'))]}
 
 prinseq_parameter_descriptions = {
     'trim_qual_right': 'Trim sequence by quality score from the 3\'-end with '

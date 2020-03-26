@@ -39,7 +39,7 @@ _prinseq_defaults = {
     'min_len': 70,
     'lc_method': 'dust',
     'lc_threshold': 3,
-    'derep': '14'
+    'derep': ['1', '4']
 }
 
 
@@ -54,6 +54,7 @@ def _run_prinseq(
         lc_threshold=_prinseq_defaults['lc_threshold'],
         derep=_prinseq_defaults['derep'],
         ):
+    derep = ''.join(derep)
     # prinseq-lite only accepts unzipped fastq
     temp_dir = tempfile.mkdtemp(prefix='a-place-to-put-unzipped-fastqs-')
     f_out = '{0}/{1}.fastq'.format(temp_dir, os.path.basename(f_read))
