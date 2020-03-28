@@ -26,7 +26,7 @@ class TestPrinseqSingle(TestPluginBase):
     # detailed tests in the Util Tests below ensure the commands are crafted
     # appropriately.
     def test_typical(self):
-        demuxed_art = Artifact.load(self.get_data_path('single-end-seqs.qza'))
+        demuxed_art = Artifact.load(self.get_data_path('single-end.qza'))
         obs_art, = self.plugin.methods['prinseq_single'](demuxed_art)
         obs = obs_art.view(SingleLanePerSampleSingleEndFastqDirFmt)
         obs_seqs = obs.sequences.iter_views(FastqGzFormat)
@@ -48,7 +48,7 @@ class TestPrinseqPaired(TestPluginBase):
     # detailed tests in the Util Tests below ensure the commands are crafted
     # appropriately.
     def test_typical(self):
-        demuxed_art = Artifact.load(self.get_data_path('paired-end-seqs.qza'))
+        demuxed_art = Artifact.load(self.get_data_path('paired-end.qza'))
         # The forward and reverse reads are identical in these data
         obs_art, = self.plugin.methods['prinseq_paired'](demuxed_art)
         obs = obs_art.view(SingleLanePerSamplePairedEndFastqDirFmt)

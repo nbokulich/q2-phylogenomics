@@ -14,7 +14,9 @@ from qiime2.plugin import (
     Int,
     Str,
     List,
+    Bool,
 )
+from q2_types.feature_data import FeatureData, Sequence
 from q2_types.sample_data import SampleData
 from q2_types.per_sample_sequences import (
     SequencesWithQuality,
@@ -23,6 +25,8 @@ from q2_types.per_sample_sequences import (
 
 import q2_phylogenomics
 import q2_phylogenomics._prinseq
+import q2_phylogenomics._filter
+from q2_types.bowtie2 import Bowtie2Index
 
 
 citations = Citations.load('citations.bib', package='q2_phylogenomics')
@@ -100,4 +104,80 @@ plugin.methods.register_function(
     description='Filter and trim demultiplexed paired-end FASTQ sequences '
                 'based on quality scores using PRINSEQ-lite.',
     citations=[citations['schmieder_prinseq']]
+)
+
+filter_input = {'demultiplexed_sequences': 'The sequences to be trimmed.',
+                'database': 'Bowtie2 indexed database.'}
+filter_output = {'filtered_sequences': 'The resulting filtered sequences.'}
+
+filter_parameters = {
+    'n_threads': Int % Range(1, None),
+    'mode': Str % Choices([
+        'very-fast-local', 'fast-local', 'sensitive-local',
+        'very-sensitive-local', 'very-fast-global', 'fast-global',
+        'sensitive-global', 'very-sensitive-global']),
+    'exclude_seqs': Bool,
+}
+
+filter_parameter_descriptions = {
+    'n_threads': 'Number of alignment threads to launch.',
+    'mode': 'Bowtie2 alignment settings. See bowtie2 manual for more details.',
+    'exclude_seqs': 'Exclude sequences that align to reference. Set this '
+                    'option to False to exclude sequences that do not align '
+                    'to the reference database.'
+}
+
+filter_citations = [citations['langmead2012fast'],
+                    citations['heng2009samtools']]
+
+filter_description = (
+    'Filter out (or keep) sequences that align to reference database, using '
+    'bowtie2 and samtools. This method can be used to filter out human DNA '
+    'sequences and other contaminant in any FASTQ sequence data (e.g., '
+    'shotgun genome or amplicon sequence data), or alternatively (when '
+    'exclude_seqs is False) to only keep sequences that do align to the '
+    'reference.')
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._filter.filter_single,
+    inputs={'demultiplexed_sequences': SampleData[SequencesWithQuality],
+            'database': Bowtie2Index},
+    parameters=filter_parameters,
+    outputs=[('filtered_sequences', SampleData[SequencesWithQuality])],
+    input_descriptions=filter_input,
+    parameter_descriptions=filter_parameter_descriptions,
+    output_descriptions=filter_output,
+    name='Filter single-end sequences by alignment to reference database.',
+    description=filter_description,
+    citations=filter_citations
+)
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._filter.filter_paired,
+    inputs={
+        'demultiplexed_sequences': SampleData[PairedEndSequencesWithQuality],
+        'database': Bowtie2Index},
+    parameters=filter_parameters,
+    outputs=[
+        ('filtered_sequences', SampleData[PairedEndSequencesWithQuality])],
+    input_descriptions=filter_input,
+    parameter_descriptions=filter_parameter_descriptions,
+    output_descriptions=filter_output,
+    name='Filter paired-end sequences by alignment to reference database.',
+    description=filter_description,
+    citations=filter_citations
+)
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._filter.bowtie2_build,
+    inputs={'sequences': FeatureData[Sequence]},
+    parameters={'n_threads': Int % Range(1, None)},
+    outputs=[('database', Bowtie2Index)],
+    input_descriptions={
+        'sequences': 'Reference sequences used to build bowtie2 index.'},
+    parameter_descriptions={'n_threads': 'Number of threads to launch'},
+    output_descriptions={'database': 'Bowtie2 index.'},
+    name='Build bowtie2 index from reference sequences.',
+    description='Build bowtie2 index from reference sequences.',
+    citations=[citations['langmead2012fast']]
 )

@@ -7,10 +7,8 @@
 # ----------------------------------------------------------------------------
 
 import os
-import gzip
 import shutil
 import tempfile
-import subprocess
 import pandas as pd
 
 from q2_types.per_sample_sequences import (
@@ -19,16 +17,7 @@ from q2_types.per_sample_sequences import (
     SingleLanePerSamplePairedEndFastqDirFmt,
 )
 
-
-def run_command(cmd, verbose=True):
-    print('Running external command line application. This may print '
-          'messages to stdout and/or stderr.')
-    print('The commands to be run are below. These commands cannot '
-          'be manually re-run as they will depend on temporary files that '
-          'no longer exist.')
-    print('\nCommand:', end=' ')
-    print(' '.join(cmd), end='\n\n')
-    subprocess.run(cmd, check=True)
+from ._util import run_command, _gzip_compress, _gzip_decompress
 
 
 _prinseq_defaults = {
@@ -58,14 +47,10 @@ def _run_prinseq(
     # prinseq-lite only accepts unzipped fastq
     temp_dir = tempfile.mkdtemp(prefix='a-place-to-put-unzipped-fastqs-')
     f_out = '{0}/{1}.fastq'.format(temp_dir, os.path.basename(f_read))
-    with gzip.open(f_read, 'rt') as f_in:
-        with open(f_out, 'w') as temp_out:
-            shutil.copyfileobj(f_in, temp_out)
+    _gzip_decompress(f_read, f_out)
     if r_read is not None:
         r_out = '{0}/{1}.fastq'.format(temp_dir, os.path.basename(r_read))
-        with gzip.open(r_read, 'rt') as r_in:
-            with open(r_out, 'w') as temp_out:
-                shutil.copyfileobj(r_in, temp_out)
+        _gzip_decompress(r_read, r_out)
 
     outname = temp_dir + '/outfile'
 
@@ -93,16 +78,12 @@ def _run_prinseq(
     # prinseq has its own output path naming scheme, so rename to keep Q2 happy
     if r_read is not None:
         r_read = str(trimmed_seqs.path / os.path.basename(r_read))
-        with open(outname + '_2.fastq', 'rb') as temp_in:
-            with gzip.open(r_read, 'wb') as temp_out:
-                shutil.copyfileobj(temp_in, temp_out)
+        _gzip_compress(outname + '_2.fastq', r_read)
         # if using paired-end data, adjust the trimmed forward read filepath.
         # For details see prinseq-lite manual -out_good option.
         outname += '_1'
     f_read = str(trimmed_seqs.path / os.path.basename(f_read))
-    with open(outname + '.fastq', 'rb') as temp_in:
-        with gzip.open(f_read, 'wb') as temp_out:
-            shutil.copyfileobj(temp_in, temp_out)
+    _gzip_compress(outname + '.fastq', f_read)
 
     shutil.rmtree(temp_dir)
 

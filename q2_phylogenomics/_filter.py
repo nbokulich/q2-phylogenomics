@@ -1,0 +1,131 @@
+# ----------------------------------------------------------------------------
+# Copyright (c) 2020, QIIME 2 development team.
+#
+# Distributed under the terms of the Modified BSD License.
+#
+# The full license is in the file LICENSE, distributed with this software.
+# ----------------------------------------------------------------------------
+
+import os
+import shutil
+import tempfile
+import pandas as pd
+
+from q2_types.feature_data import DNAFASTAFormat
+from q2_types.bowtie2 import Bowtie2IndexDirFmt
+from q2_types.per_sample_sequences import (
+    CasavaOneEightSingleLanePerSampleDirFmt,
+    SingleLanePerSampleSingleEndFastqDirFmt,
+    SingleLanePerSamplePairedEndFastqDirFmt,
+)
+
+from ._util import run_command
+
+
+_filter_defaults = {
+    'n_threads': 1,
+    'mode': 'sensitive-local',
+    'exclude_seqs': True,
+}
+
+
+def bowtie2_build(sequences: DNAFASTAFormat,
+                  n_threads: str = 1) -> Bowtie2IndexDirFmt:
+    database = Bowtie2IndexDirFmt()
+    build_cmd = ['bowtie2-build', '--threads', str(n_threads),
+                 str(sequences), str(database.path / 'db')]
+    run_command(build_cmd)
+    return database
+
+
+def filter_single(
+        demultiplexed_sequences: SingleLanePerSampleSingleEndFastqDirFmt,
+        database: Bowtie2IndexDirFmt,
+        n_threads: int = _filter_defaults['n_threads'],
+        mode: str = _filter_defaults['mode'],
+        exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
+            CasavaOneEightSingleLanePerSampleDirFmt:
+    filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
+    df = demultiplexed_sequences.manifest.view(pd.DataFrame)
+    for _, fwd in df.itertuples():
+        _bowtie2_filter(
+            fwd, None, filtered_seqs, database, n_threads, mode, exclude_seqs)
+    return filtered_seqs
+
+
+def filter_paired(
+        demultiplexed_sequences: SingleLanePerSamplePairedEndFastqDirFmt,
+        database: Bowtie2IndexDirFmt,
+        n_threads: int = _filter_defaults['n_threads'],
+        mode: str = _filter_defaults['mode'],
+        exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
+            CasavaOneEightSingleLanePerSampleDirFmt:
+    filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
+    df = demultiplexed_sequences.manifest.view(pd.DataFrame)
+    for _, fwd, rev in df.itertuples():
+        _bowtie2_filter(
+            fwd, rev, filtered_seqs, database, n_threads, mode, exclude_seqs)
+    return filtered_seqs
+
+
+def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
+                    exclude_seqs):
+    mode = '--' + mode.replace('-global', '')
+    with tempfile.NamedTemporaryFile() as sam_f:
+        samfile_output_path = sam_f.name
+        with tempfile.NamedTemporaryFile() as bam_f:
+            bamfile_output_path = bam_f.name
+
+            # align to reference with bowtie
+            bowtie_cmd = ['bowtie2', '-p', str(n_threads), mode,
+                          '-x', str(database.path / database.get_basename())]
+            if r_read is not None:
+                bowtie_cmd += ['-1', f_read, '-2', r_read]
+            else:
+                bowtie_cmd += ['-U', f_read]
+            bowtie_cmd += ['-S', samfile_output_path]
+            run_command(bowtie_cmd)
+
+            # Filter alignment and convert to BAM with samtools
+            # -f 4 keeps only single alignments that are unmapped
+            # -f 12 keeps only paired alignments with both reads unmapped
+            # -F 256 removes reads that are not primary alignment
+            # -F 260 removes reads that are not primary alignment or unmapped
+            # -F 268 removes reads that are not primary alignment or unmapped
+            # or pair is unmapped.
+            if exclude_seqs:
+                sam_flags = ['-F', '256', '-f', '4']
+                if r_read is not None:
+                    sam_flags[-1] = '12'
+            else:
+                sam_flags = ['-F', '260']
+                if r_read is not None:
+                    sam_flags[-1] = '268'
+            samtools_command = ['samtools', 'view', '-b', samfile_output_path,
+                                '-o', bamfile_output_path, *sam_flags,
+                                '-@', str(n_threads - 1)]
+            run_command(samtools_command)
+            # sort BAM file by read name so pairs are ordered
+            if r_read is not None:
+                with tempfile.NamedTemporaryFile() as sort_f:
+                    bamfile_sorted_output_path = sort_f.name
+                    sort_command = [
+                        'samtools', 'sort', '-n', '-@', str(n_threads - 1),
+                        '-o', bamfile_sorted_output_path, bamfile_output_path]
+                    run_command(sort_command)
+                    shutil.copyfile(
+                        bamfile_sorted_output_path, bamfile_output_path)
+
+            # Convert to FASTQ with samtools
+            fwd = str(outdir.path / os.path.basename(f_read)) + '.fastq.gz'
+            _reads = ['-1', fwd]
+            if r_read is not None:
+                rev = str(outdir.path / os.path.basename(r_read)) + '.fastq.gz'
+                _reads += ['-2', rev]
+            # -s /dev/null excludes singletons
+            # -0 /dev/null excludes supplementary and secondary reads
+            # -n keeps samtools from altering header IDs!
+            convert_command = [
+                'samtools', 'fastq', *_reads, '-0', '/dev/null',
+                '-s', '/dev/null', '-n', bamfile_output_path]
+            run_command(convert_command)
