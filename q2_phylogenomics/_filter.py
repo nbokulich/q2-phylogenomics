@@ -40,7 +40,8 @@ _filter_defaults = {
     'mode': 'local',
     'sensitivity': 'sensitive',
     'exclude_seqs': True,
-    'ref_gap_penalty': '1,3',
+    'ref_gap_open_penalty': 1,
+    'ref_gap_ext_penalty': 3,
 }
 
 
@@ -59,14 +60,16 @@ def filter_single(
         n_threads: int = _filter_defaults['n_threads'],
         mode: str = _filter_defaults['mode'],
         sensitivity: str = _filter_defaults['sensitivity'],
-        ref_gap_penalty: str = _filter_defaults['ref_gap_penalty'],
+        ref_gap_open_penalty: str = _filter_defaults['ref_gap_open_penalty'],
+        ref_gap_ext_penalty: str = _filter_defaults['ref_gap_ext_penalty'],
         exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
             CasavaOneEightSingleLanePerSampleDirFmt:
     filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
     df = demultiplexed_sequences.manifest.view(pd.DataFrame)
     for _, fwd in df.itertuples():
         _bowtie2_filter(fwd, None, filtered_seqs, database, n_threads, mode,
-                        sensitivity, ref_gap_penalty, exclude_seqs)
+                        sensitivity, ref_gap_open_penalty, ref_gap_ext_penalty,
+                        exclude_seqs)
     return filtered_seqs
 
 
@@ -76,23 +79,28 @@ def filter_paired(
         n_threads: int = _filter_defaults['n_threads'],
         mode: str = _filter_defaults['mode'],
         sensitivity: str = _filter_defaults['sensitivity'],
-        ref_gap_penalty: str = _filter_defaults['ref_gap_penalty'],
+        ref_gap_open_penalty: str = _filter_defaults['ref_gap_open_penalty'],
+        ref_gap_ext_penalty: str = _filter_defaults['ref_gap_ext_penalty'],
         exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
             CasavaOneEightSingleLanePerSampleDirFmt:
     filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
     df = demultiplexed_sequences.manifest.view(pd.DataFrame)
     for _, fwd, rev in df.itertuples():
         _bowtie2_filter(fwd, rev, filtered_seqs, database, n_threads, mode,
-                        sensitivity, ref_gap_penalty, exclude_seqs)
+                        sensitivity, ref_gap_open_penalty, ref_gap_ext_penalty,
+                        exclude_seqs)
     return filtered_seqs
 
 
 def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
-                    sensitivity, ref_gap_penalty, exclude_seqs):
+                    sensitivity, ref_gap_open_penalty, ref_gap_ext_penalty,
+                    exclude_seqs):
     if mode == 'local':
         mode = '--{0}-{1}'.format(sensitivity, mode)
     else:
         mode = '--' + sensitivity
+    rfg_setting = '{0},{1}'.format(ref_gap_open_penalty, ref_gap_ext_penalty)
+
     with tempfile.NamedTemporaryFile() as sam_f:
         samfile_output_path = sam_f.name
         with tempfile.NamedTemporaryFile() as bam_f:
@@ -100,7 +108,7 @@ def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
 
             # align to reference with bowtie
             bowtie_cmd = ['bowtie2', '-p', str(n_threads), mode,
-                          '--rfg', ref_gap_penalty,
+                          '--rfg', rfg_setting,
                           '-x', str(database.path / database.get_basename())]
             if r_read is not None:
                 bowtie_cmd += ['-1', f_read, '-2', r_read]

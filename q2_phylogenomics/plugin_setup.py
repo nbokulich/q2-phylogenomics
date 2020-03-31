@@ -115,7 +115,8 @@ filter_parameters = {
     'mode': Str % Choices(['local', 'global']),
     'sensitivity': Str % Choices([
         'very-fast', 'fast', 'sensitive', 'very-sensitive']),
-    'ref_gap_penalty': Str,
+    'ref_gap_open_penalty': Int % Range(1, None),
+    'ref_gap_ext_penalty': Int % Range(1, None),
     'exclude_seqs': Bool,
 }
 
@@ -124,8 +125,8 @@ filter_parameter_descriptions = {
     'mode': 'Bowtie2 alignment settings. See bowtie2 manual for more details.',
     'sensitivity': 'Bowtie2 alignment sensitivity. See bowtie2 manual for '
                    'details.',
-    'ref_gap_penalty': 'Reference gap open, extend penalties. Should be a '
-                       'a string in format "integer,integer".',
+    'ref_gap_open_penalty': 'Reference gap open penalty.',
+    'ref_gap_ext_penalty': 'Reference gap extend penalty.',
     'exclude_seqs': 'Exclude sequences that align to reference. Set this '
                     'option to False to exclude sequences that do not align '
                     'to the reference database.'
