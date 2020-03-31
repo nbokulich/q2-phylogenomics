@@ -40,7 +40,7 @@ _filter_defaults = {
     'mode': 'local',
     'sensitivity': 'sensitive',
     'exclude_seqs': True,
-    'ref_gap_open_penalty': 1,
+    'ref_gap_open_penalty': 5,
     'ref_gap_ext_penalty': 3,
 }
 
