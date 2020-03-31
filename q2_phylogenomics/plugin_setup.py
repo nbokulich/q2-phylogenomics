@@ -112,16 +112,20 @@ filter_output = {'filtered_sequences': 'The resulting filtered sequences.'}
 
 filter_parameters = {
     'n_threads': Int % Range(1, None),
-    'mode': Str % Choices([
-        'very-fast-local', 'fast-local', 'sensitive-local',
-        'very-sensitive-local', 'very-fast-global', 'fast-global',
-        'sensitive-global', 'very-sensitive-global']),
+    'mode': Str % Choices(['local', 'global']),
+    'sensitivity': Str % Choices([
+        'very-fast', 'fast', 'sensitive', 'very-sensitive']),
+    'ref_gap_penalty': Str,
     'exclude_seqs': Bool,
 }
 
 filter_parameter_descriptions = {
     'n_threads': 'Number of alignment threads to launch.',
     'mode': 'Bowtie2 alignment settings. See bowtie2 manual for more details.',
+    'sensitivity': 'Bowtie2 alignment sensitivity. See bowtie2 manual for '
+                   'details.',
+    'ref_gap_penalty': 'Reference gap open, extend penalties. Should be a '
+                       'a string in format "integer,integer".',
     'exclude_seqs': 'Exclude sequences that align to reference. Set this '
                     'option to False to exclude sequences that do not align '
                     'to the reference database.'

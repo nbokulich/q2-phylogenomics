@@ -22,10 +22,25 @@ from q2_types.per_sample_sequences import (
 from ._util import run_command
 
 
+# samtools flags
+# -f 4 keeps only single alignments that are unmapped
+# -f 12 keeps only paired alignments with both reads unmapped
+# -F 256 removes reads that are not primary alignment
+# -F 260 removes reads that are not primary alignment or unmapped
+# -F 268 removes reads that are not primary alignment or unmapped
+# or pair is unmapped.
+KEEP_UNMAPPED_SINGLE = '4'
+KEEP_UNMAPPED_PAIRED = '12'
+REMOVE_SECONDARY_ALIGNMENTS = '256'
+REMOVE_SECONDARY_OR_UNMAPPED_SINGLE = '260'
+REMOVE_SECONDARY_OR_UNMAPPED_PAIRED = '268'
+
 _filter_defaults = {
     'n_threads': 1,
-    'mode': 'sensitive-local',
+    'mode': 'local',
+    'sensitivity': 'sensitive',
     'exclude_seqs': True,
+    'ref_gap_penalty': '1,3',
 }
 
 
@@ -43,13 +58,15 @@ def filter_single(
         database: Bowtie2IndexDirFmt,
         n_threads: int = _filter_defaults['n_threads'],
         mode: str = _filter_defaults['mode'],
+        sensitivity: str = _filter_defaults['sensitivity'],
+        ref_gap_penalty: str = _filter_defaults['ref_gap_penalty'],
         exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
             CasavaOneEightSingleLanePerSampleDirFmt:
     filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
     df = demultiplexed_sequences.manifest.view(pd.DataFrame)
     for _, fwd in df.itertuples():
-        _bowtie2_filter(
-            fwd, None, filtered_seqs, database, n_threads, mode, exclude_seqs)
+        _bowtie2_filter(fwd, None, filtered_seqs, database, n_threads, mode,
+                        sensitivity, ref_gap_penalty, exclude_seqs)
     return filtered_seqs
 
 
@@ -58,19 +75,24 @@ def filter_paired(
         database: Bowtie2IndexDirFmt,
         n_threads: int = _filter_defaults['n_threads'],
         mode: str = _filter_defaults['mode'],
+        sensitivity: str = _filter_defaults['sensitivity'],
+        ref_gap_penalty: str = _filter_defaults['ref_gap_penalty'],
         exclude_seqs: bool = _filter_defaults['exclude_seqs']) -> \
             CasavaOneEightSingleLanePerSampleDirFmt:
     filtered_seqs = CasavaOneEightSingleLanePerSampleDirFmt()
     df = demultiplexed_sequences.manifest.view(pd.DataFrame)
     for _, fwd, rev in df.itertuples():
-        _bowtie2_filter(
-            fwd, rev, filtered_seqs, database, n_threads, mode, exclude_seqs)
+        _bowtie2_filter(fwd, rev, filtered_seqs, database, n_threads, mode,
+                        sensitivity, ref_gap_penalty, exclude_seqs)
     return filtered_seqs
 
 
 def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
-                    exclude_seqs):
-    mode = '--' + mode.replace('-global', '')
+                    sensitivity, ref_gap_penalty, exclude_seqs):
+    if mode == 'local':
+        mode = '--{0}-{1}'.format(sensitivity, mode)
+    else:
+        mode = '--' + sensitivity
     with tempfile.NamedTemporaryFile() as sam_f:
         samfile_output_path = sam_f.name
         with tempfile.NamedTemporaryFile() as bam_f:
@@ -78,6 +100,7 @@ def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
 
             # align to reference with bowtie
             bowtie_cmd = ['bowtie2', '-p', str(n_threads), mode,
+                          '--rfg', ref_gap_penalty,
                           '-x', str(database.path / database.get_basename())]
             if r_read is not None:
                 bowtie_cmd += ['-1', f_read, '-2', r_read]
@@ -87,20 +110,15 @@ def _bowtie2_filter(f_read, r_read, outdir, database, n_threads, mode,
             run_command(bowtie_cmd)
 
             # Filter alignment and convert to BAM with samtools
-            # -f 4 keeps only single alignments that are unmapped
-            # -f 12 keeps only paired alignments with both reads unmapped
-            # -F 256 removes reads that are not primary alignment
-            # -F 260 removes reads that are not primary alignment or unmapped
-            # -F 268 removes reads that are not primary alignment or unmapped
-            # or pair is unmapped.
             if exclude_seqs:
-                sam_flags = ['-F', '256', '-f', '4']
+                sam_flags = ['-F', REMOVE_SECONDARY_ALIGNMENTS,
+                             '-f', KEEP_UNMAPPED_SINGLE]
                 if r_read is not None:
-                    sam_flags[-1] = '12'
+                    sam_flags[-1] = KEEP_UNMAPPED_PAIRED
             else:
-                sam_flags = ['-F', '260']
+                sam_flags = ['-F', REMOVE_SECONDARY_OR_UNMAPPED_SINGLE]
                 if r_read is not None:
-                    sam_flags[-1] = '268'
+                    sam_flags[-1] = REMOVE_SECONDARY_OR_UNMAPPED_PAIRED
             samtools_command = ['samtools', 'view', '-b', samfile_output_path,
                                 '-o', bamfile_output_path, *sam_flags,
                                 '-@', str(n_threads - 1)]
