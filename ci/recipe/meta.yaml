@@ -24,7 +24,8 @@ requirements:
     - samtools
     - bowtie2
     - qiime2 {{ release }}.*
-    - q2-types {{ release }}.*
+    - q2-types >=2020.5.0.dev0+3.g004403d
+    - ivar
 
 test:
   imports:

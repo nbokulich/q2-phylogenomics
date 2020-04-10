@@ -12,7 +12,7 @@ import gzip
 import shutil
 
 
-def run_command(cmd, verbose=True):
+def run_command(cmd, verbose=True, stdout=None, stdin=None, cwd=None):
     print('Running external command line application. This may print '
           'messages to stdout and/or stderr.')
     print('The commands to be run are below. These commands cannot '
@@ -20,7 +20,7 @@ def run_command(cmd, verbose=True):
           'no longer exist.')
     print('\nCommand:', end=' ')
     print(' '.join(cmd), end='\n\n')
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, stdout=stdout, stdin=stdin, cwd=cwd)
 
 
 def _gzip_compress(input_fp, output_fp):

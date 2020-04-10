@@ -6,6 +6,8 @@
 # The full license is in the file LICENSE, distributed with this software.
 # ----------------------------------------------------------------------------
 
+import importlib
+
 from qiime2.plugin import (
     Choices,
     Plugin,
@@ -15,7 +17,9 @@ from qiime2.plugin import (
     Str,
     List,
     Bool,
+    Float
 )
+from q2_types.feature_table import FeatureTable, PresenceAbsence
 from q2_types.feature_data import FeatureData, Sequence
 from q2_types.sample_data import SampleData
 from q2_types.per_sample_sequences import (
@@ -26,7 +30,16 @@ from q2_types.per_sample_sequences import (
 import q2_phylogenomics
 import q2_phylogenomics._prinseq
 import q2_phylogenomics._filter
+import q2_phylogenomics._assemble
 from q2_types.bowtie2 import Bowtie2Index
+from q2_types.feature_data import DNASequencesDirectoryFormat
+from q2_phylogenomics._format import (GenBankFormat, GenBankDirFmt,
+                                      BAMFormat, SAMFormat,
+                                      BAMFilesDirFmt, SAMFilesDirFmt,
+                                      PileUpTSVFormat, PileUpFilesDirFmt,
+                                      FASTAFilesDirFmt)
+from q2_phylogenomics._types import (AlignmentMap, PileUp, ConsensusSequences,
+                                     ReferenceSequence)
 
 
 citations = Citations.load('citations.bib', package='q2_phylogenomics')
@@ -39,6 +52,30 @@ plugin = Plugin(
     description='A QIIME 2 plugin for phylogenomics analyses.',
     short_description='A QIIME 2 plugin for phylogenomics analyses.',
 )
+
+plugin.register_formats(GenBankFormat, GenBankDirFmt, citations=[])
+plugin.register_formats(BAMFormat, SAMFormat, BAMFilesDirFmt, SAMFilesDirFmt,
+                        PileUpTSVFormat, PileUpFilesDirFmt,
+                        citations=[])
+plugin.register_formats(FASTAFilesDirFmt)
+
+plugin.register_semantic_types(AlignmentMap, PileUp, ConsensusSequences,
+                               ReferenceSequence)
+
+# before release we want to use GenBank format for this,
+# but I think it's broken with skbio < 0.5.6 - I get this
+# error when trying to load a genbank file:
+# ValueError: cannot set WRITEABLE flag to True of this array
+# plugin.register_semantic_type_to_format(ReferenceSequence, GenBankDirFmt)
+plugin.register_semantic_type_to_format(ReferenceSequence,
+                                        DNASequencesDirectoryFormat)
+plugin.register_semantic_type_to_format(SampleData[PileUp], PileUpFilesDirFmt)
+plugin.register_semantic_type_to_format(SampleData[AlignmentMap],
+                                        BAMFilesDirFmt)
+plugin.register_semantic_type_to_format(SampleData[ConsensusSequences],
+                                        FASTAFilesDirFmt)
+
+importlib.import_module('q2_phylogenomics._transformers')
 
 prinseq_input = {'demultiplexed_sequences': 'The sequences to be trimmed.'}
 prinseq_output = {'trimmed_sequences': 'The resulting trimmed sequences.'}
@@ -185,4 +222,139 @@ plugin.methods.register_function(
     name='Build bowtie2 index from reference sequences.',
     description='Build bowtie2 index from reference sequences.',
     citations=[citations['langmead2012fast']]
+)
+
+map_paired_reads_input_descriptions = {
+    'demux': 'The demultiplexed sequences to map to the reference.',
+    'database': 'The reference sequence(s).'
+}
+
+map_paired_reads_parameter_descriptions = {
+    'mismatches_per_seed': 'Max mismatches allowed in seed alignment.',
+    'ceil_coefficient': 'Coefficient used to specify the bowtie '
+                        'function L(0,x) for max number of non-A/C/G/T '
+                        'characters allowed in an alignment.',
+    'n_threads': 'Number of alignment threads to launch.',
+    'mapped_only': 'Retain only records for reads that were mapped '
+                   'to the database in the output files.'
+}
+
+map_paired_reads_output_descriptions = {
+    'alignment_maps': 'Results of mapping reads in each input sample '
+                      'to the provided database.'
+}
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._assemble.map_paired_reads,
+    inputs={'demux': SampleData[PairedEndSequencesWithQuality],
+            'database': Bowtie2Index},
+    parameters={'mismatches_per_seed': Int % Range(0, 1, inclusive_end=True),
+                'ceil_coefficient': Float,
+                'n_threads': Int % Range(1, None),
+                'mapped_only': Bool},
+    outputs=[('alignment_maps', SampleData[AlignmentMap])],
+    input_descriptions=map_paired_reads_input_descriptions,
+    parameter_descriptions=map_paired_reads_parameter_descriptions,
+    output_descriptions=map_paired_reads_output_descriptions,
+    name='Map paired end reads.',
+    description='Map paired end reads to a database.',
+    citations=[citations['langmead2012fast']]
+)
+
+sort_alignment_maps_input_descriptions = {
+    'unsorted': 'The unsorted alignment maps.'
+}
+
+sort_alignment_maps_output_descriptions = {
+    'sorted': 'The sorted alignment maps.'
+}
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._assemble.sort_alignment_maps,
+    inputs={'unsorted': SampleData[AlignmentMap]},
+    parameters={},
+    outputs=[('sorted', SampleData[AlignmentMap])],
+    input_descriptions=sort_alignment_maps_input_descriptions,
+    parameter_descriptions={},
+    output_descriptions=sort_alignment_maps_output_descriptions,
+    name='Sort alignment maps.',
+    description='Sort alignment maps by reference start position.',
+    citations=[citations['heng2009samtools']]
+)
+
+remove_duplicates_input_descriptions = {
+    'sorted': 'The sorted alignment maps.'
+}
+
+remove_duplicates_output_descriptions = {
+    'duplicate_filtered': 'The sorted and filtered alignment maps.'
+}
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._assemble.remove_duplicates,
+    inputs={'sorted': SampleData[AlignmentMap]},
+    parameters={},
+    outputs=[('duplicate_filtered', SampleData[AlignmentMap])],
+    input_descriptions=remove_duplicates_input_descriptions,
+    parameter_descriptions={},
+    output_descriptions=remove_duplicates_output_descriptions,
+    name='Remove duplicates.',
+    description='Remove duplicate reads from alignment maps.',
+    citations=[citations['heng2009samtools']]
+)
+
+make_pileup_input_descriptions = {
+    'sorted': 'Sorted alignment maps.',
+    'reference': 'The reference sequence'
+}
+
+make_pileup_parameter_descriptions = {
+    'min_mapq': 'The minimum mapQ to consider an alignment.',
+    'max_depth': 'The max per-file depth.'
+}
+
+make_pileup_output_descriptions = {
+    'pileups': 'The resulting PileUp data.'
+}
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._assemble.make_pileups,
+    inputs={'sorted': SampleData[AlignmentMap],  # need a sorted property?
+            # the following should become type ReferenceSequence
+            # or somehow be integrated with the Bowtie Index
+            'reference': Bowtie2Index},
+    parameters={'min_mapq': Int % Range(0, None),
+                'max_depth': Int % Range(1, None)},
+    outputs=[('pileups', SampleData[PileUp])],
+    input_descriptions=make_pileup_input_descriptions,
+    parameter_descriptions=make_pileup_parameter_descriptions,
+    output_descriptions=make_pileup_output_descriptions,
+    name='Create PileUp files',
+    description='Create PileUp Files from sorted alignment maps.',
+    citations=[citations['heng2009samtools']]
+)
+
+consensus_sequence_input_descriptions = {
+    'pileups': 'The PileUp data.'
+}
+
+consensus_sequence_output_descriptions = {
+    'table': 'Table describing which consensus sequences are '
+             'observed in each sample.',
+    'consensus_sequences': 'Mapping of consensus sequence identifiers '
+                           'to consensus sequences.'
+}
+
+plugin.methods.register_function(
+    function=q2_phylogenomics._assemble.consensus_sequence,
+    inputs={'pileups': SampleData[PileUp]},
+    parameters={},
+    outputs=[('table', FeatureTable[PresenceAbsence]),
+             ('consensus_sequences', FeatureData[Sequence])],
+    input_descriptions=consensus_sequence_input_descriptions,
+    parameter_descriptions={},
+    output_descriptions=consensus_sequence_output_descriptions,
+    name='',
+    description='',
+    citations=[citations['Grubaugh2019ivar']]
 )
